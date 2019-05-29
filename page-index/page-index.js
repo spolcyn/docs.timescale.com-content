@@ -503,6 +503,14 @@ const pageIndex = [
         type: PAGE,
         href: "faq"
     }, {
+        Title: "Slack community",
+        type: PAGE,
+        href: "slack.timescale.com"
+    }, {
+        Title: "Office hours",
+        type: PAGE,
+        href: "https://docs.google.com/forms/d/e/1FAIpQLSdkw9AJKq2kTuM7nWkdllc97lcbl48O-RxzQxyI2IVt9wRzeA/viewform"
+    }, {
         Title: "Github",
         type: LINK,
         href: "https://github.com/timescale/timescaledb"
