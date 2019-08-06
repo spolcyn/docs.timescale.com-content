@@ -10,6 +10,7 @@
 > - [alter table (compression)](#compression_alter-table)
 > - [alter view (continuous aggregate)](#continuous_aggregate-alter_view)
 > - [attach_tablespace](#attach_tablespace)
+> - [cdf_approx](#cdf_approx)
 > - [chunk_relation_size](#chunk_relation_size)
 > - [chunk_relation_size_pretty](#chunk_relation_size_pretty)
 > -	[compress_chunk](#compress_chunk)
@@ -33,6 +34,7 @@
 > - [last](#last)
 > - [locf](#locf)
 > - [move_chunk](#move_chunk)
+> - [percentile_approx](#percentile_approx)
 > - [refresh materialized view (continuous aggregate)](#continuous_aggregate-refresh_view)
 > -	[remove_compress_chunks_policy](#remove_compress_chunks_policy)
 > - [remove_drop_chunks_policy](#remove_drop_chunks_policy)
@@ -43,6 +45,9 @@
 > - [set_number_partitions](#set_number_partitions)
 > - [show_chunks](#show_chunks)
 > - [show_tablespaces](#show_tablespaces)
+> - [tdigest_create](#tdigest_create)
+> - [tdigest_count](#tdigest_count)
+> - [tdigest_print](#tdigest_print)
 > - [time_bucket](#time_bucket)
 > - [time_bucket_gapfill](#time_bucket_gapfill)
 > - [timescaledb_information.hypertable](#timescaledb_information-hypertable)
@@ -1843,6 +1848,105 @@ ORDER BY day;
 
 ---
 
+## percentile_approx() [](percentile_approx)
+
+Quickly approximates the value at a particular percentile for a set of data. 
+Currently, this function is only used with the t-digest data structure.
+
+#### Required Arguments [](percentile_approx-required-arguments)
+
+|Name|Description|  
+|---|---|
+| `structure` | A data structure representing a set of data for the computation. Currently, only t-digest is supported. |
+| `percentile` | The percentile to find the value for, expressed as a decimal in the range [0, 1.0] |
+
+#### Sample Usage [](percentile_approx-examples)
+
+Approximate median from the column `cpu_freq_hz` in table `values`:
+
+```sql
+SELECT percentile_approx(tdigest_create(cpu_freq_hz), .5) FROM values;
+```
+
+Example Output:
+```
+percentile_approx
+--------------
+     2059.537
+```
+
+Given a table `structs` with a column `tdigest` of t-digest structures, approximates the median for each:
+```sql
+SELECT percentile_approx(tdigest, .5) FROM structs;
+```
+This example is very similar to the continuous aggregates case, in which you would select the t-digest structures from the continuous aggregate materialized view. 
+
+---
+
+## cdf_approx() [](cdf_approx)
+
+Quickly approximates the CDF, the proportion of values in the data set less than a particular value. 
+Currently, this function is only used with the t-digest data structure.
+
+#### Required Arguments [](cdf_approx-required-arguments)
+
+|Name|Description|  
+|---|---|
+| `structure` | A data structure representing the set of data for the computation. Currently, only t-digest is supported. |
+| `x` | The value at which to evaluate the CDF |
+
+#### Returns
+
+|Name|Description|
+|---|---|
+| cdf_approx | The approximate probability a random variable with the distribution represented by the data set provided will take a value less than or equal to `x`|
+
+#### Sample Usage [](cdf_approx-examples)
+
+Approximate CDF evaluated at 7 for a set of numbers in the `numbers` column:
+
+```sql
+SELECT cdf_approx(tdigest_create(numbers), 7) FROM example_table;
+```
+
+Given a table `structs` with a column `tdigest` of t-digest structures, approximate the CDF evaluated at 7 for each t-digest:
+
+```sql
+SELECT cdf_approx(tdigest, 7) FROM structs;
+```
+This example is very similar to the continuous aggregates case, in which you would select the t-digest structures from the continuous aggregate materialized view. 
+
+---
+
+## tdigest_create() [](tdigest_create)
+
+Creates and returns a t-digest structure from a provided set of values. 
+The t-digest structure is appropriate for use with the 
+[`cdf_approx()`](#cdf_approx) and [`percentile_approx()`](#percentile_approx) functions.
+
+#### Required Arguments [](tdigest_create-required-arguments)
+
+|Name|Description|
+|---|---|
+| `column` | A column name with a set of numerical values from which to make the t-digest |
+
+#### Sample Usage [](tdigest_create-required-arguments
+
+Create a continous aggregate maintaing t-digest structures for doing computations on each 1-hour chunks of CPU metrics:
+```sql
+CREATE VIEW continuous_agg_cpu WITH (timescaledb.continuous) AS
+SELECT time_bucket('1 hour', cpu) as bucket, tdigest_create(cpu) as tdigest
+FROM server_metrics
+GROUP BY bucket;
+```
+
+Then, to compute the medians of each of those chunks:
+```sql
+SELECT percentile_approx(tdigest, .5) FROM continuous_agg_cpu;
+```
+
+---
+
 ## time_bucket() [](time_bucket)
 
 This is a more powerful version of the standard PostgreSQL `date_trunc` function.
@@ -2081,6 +2185,86 @@ ORDER BY day;
 ---
 
 ## Utilities/Statistics [](utilities)
+
+## tdigest_count() [](tdigest_count)
+
+Prints out total number of data points that have been added to a T-Digest data structure.
+This function is particularly useful to replace `count` when a dataset has been added to a T-Digest,
+as the value can be accessed instantaneously instead of counting all rows again.
+
+#### Required Arguments [](tdigest_count-required-arguments)
+
+|Name|Description|  
+|---|---|
+| `tdigest` | T-Digest structure to obtain the count from. |
+
+#### Sample Usage [](tdigest_count-examples)
+
+Example Output:
+
+```sql
+SELECT tdigest_count(tdigest_create(cpu_freq_hz), .5) FROM values;
+
+ count
+--------------
+   715
+```
+
+From a continuous aggregate called `cagg_year_view` with column of T-Digest data structures `tdigest`:
+```sql
+SELECT tdigest_count(tdigest) FROM cagg_year_view ORDER BY tdigest;
+
+ count 
+-------
+   2
+   253
+   365
+   365
+   365
+```
+
+---
+
+## tdigest_print() [](tdigest_print)
+
+Prints out the following pieces of useful information about a T-Digest: 
+1. Total number of data points added
+2. Compression level
+3. Total number of centroids in the T-Digest
+4. Total memory use of the T-Digest
+
+#### Required Arguments [](tdigest_print-required-arguments)
+
+|Name|Description|  
+|---|---|
+| `tdigest` | T-Digest structure to obtain information about. |
+
+#### Sample Usage [](tdigest_print-examples)
+
+Example Output:
+
+```sql
+SELECT tdigest_print(tdigest_create(cpu_freq_hz), .5) FROM values;
+
+tdigest_print
+--------------
+ { Data Points Added = 253, Compression = 200, Centroid Count: 253, Memory = 5112B }
+```
+
+From a continuous aggregate called `cagg_year_view` with column of T-Digest data structures `tdigest`:
+```
+SELECT tdigest_print(tdigest) FROM cagg_year_view ORDER BY tdigest;
+
+                                    tdigest_print                                    
+-------------------------------------------------------------------------------------
+ { Data Points Added = 2, Compression = 200, Centroid Count: 2, Memory = 5112B }
+ { Data Points Added = 253, Compression = 200, Centroid Count: 253, Memory = 5112B }
+ { Data Points Added = 365, Compression = 200, Centroid Count: 247, Memory = 5112B }
+ { Data Points Added = 365, Compression = 200, Centroid Count: 246, Memory = 5112B }
+ { Data Points Added = 365, Compression = 200, Centroid Count: 240, Memory = 5112B }
+```
+
+---
 
 ## timescaledb_information.hypertable [](timescaledb_information-hypertable)
 
